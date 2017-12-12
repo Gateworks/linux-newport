@@ -226,7 +226,7 @@ void bgx_lmac_internal_loopback(int node, int bgx_idx,
 void bgx_lmac_get_pfc(int node, int bgx_idx, int lmacid, void *pause);
 void bgx_lmac_set_pfc(int node, int bgx_idx, int lmacid, void *pause);
 
-void xcv_init_hw(void);
+void xcv_init_hw(int phy_mode);
 void xcv_setup_link(bool link_up, int link_speed);
 
 u64 bgx_get_rx_stats(int node, int bgx_idx, int lmac, int idx);

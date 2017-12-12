@@ -55,6 +55,7 @@ struct bgx {
 	struct pci_dev		*pdev;
 	bool                    is_dlm;
 	bool                    is_rgx;
+	int			phy_mode;
 };
 
 static struct bgx *bgx_vnic[MAX_BGX_THUNDER];
@@ -841,12 +842,12 @@ static void bgx_poll_for_link(struct work_struct *work)
 	queue_delayed_work(lmac->check_link, &lmac->dwork, HZ * 2);
 }
 
-static int phy_interface_mode(u8 lmac_type)
+static int phy_interface_mode(struct bgx *bgx, u8 lmac_type)
 {
 	if (lmac_type == BGX_MODE_QSGMII)
 		return PHY_INTERFACE_MODE_QSGMII;
 	if (lmac_type == BGX_MODE_RGMII)
-		return PHY_INTERFACE_MODE_RGMII;
+		return bgx->phy_mode;
 
 	return PHY_INTERFACE_MODE_SGMII;
 }
@@ -912,7 +913,8 @@ static int bgx_lmac_enable(struct bgx *bgx, u8 lmacid)
 
 		if (phy_connect_direct(&lmac->netdev, lmac->phydev,
 				       bgx_lmac_handler,
-				       phy_interface_mode(lmac->lmac_type)))
+				       phy_interface_mode(bgx,
+							  lmac->lmac_type)))
 			return -ENODEV;
 
 		phy_start_aneg(lmac->phydev);
@@ -1287,6 +1289,8 @@ static int bgx_init_of_phy(struct bgx *bgx)
 		bgx->lmac[lmac].lmacid = lmac;
 
 		phy_np = of_parse_phandle(node, "phy-handle", 0);
+		if (phy_np)
+			bgx->phy_mode = of_get_phy_mode(phy_np);
 		/* If there is no phy or defective firmware presents
 		 * this cortina phy, for which there is no driver
 		 * support, ignore it.
@@ -1390,7 +1394,6 @@ static int bgx_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		bgx->max_lmac = 1;
 		bgx->bgx_id = MAX_BGX_PER_CN81XX - 1;
 		bgx_vnic[bgx->bgx_id] = bgx;
-		xcv_init_hw();
 	}
 
 	/* On 81xx all are DLMs and on 83xx there are 3 BGX QLMs and one
@@ -1407,6 +1410,8 @@ static int bgx_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (err)
 		goto err_enable;
 
+	if (bgx->is_rgx)
+		xcv_init_hw(bgx->phy_mode);
 	bgx_init_hw(bgx);
 
 	/* Enable all LMACs */
