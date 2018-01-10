@@ -268,6 +268,7 @@ extern int sysctl_tcp_recovery;
 #define TCP_RACK_LOSS_DETECTION  0x1 /* Use RACK to detect losses */
 
 extern int sysctl_tcp_limit_output_bytes;
+extern int sysctl_tcp_tsq_limit_output_interval;
 extern int sysctl_tcp_challenge_ack_limit;
 extern int sysctl_tcp_min_tso_segs;
 extern int sysctl_tcp_min_rtt_wlen;

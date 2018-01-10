@@ -53,6 +53,10 @@ int sysctl_tcp_workaround_signed_windows __read_mostly = 0;
 /* Default TSQ limit of four TSO segments */
 int sysctl_tcp_limit_output_bytes __read_mostly = 262144;
 
+/* Limit on number of packets in qdisc/devices in units of ms */
+int sysctl_tcp_tsq_limit_output_interval __read_mostly = 1;
+
+
 /* This limits the percentage of the congestion window which we
  * will allow a single TSO frame to consume.  Building TSO frames
  * which are too large can cause TCP streams to be bursty.
@@ -2145,7 +2149,7 @@ static bool tcp_small_queue_check(struct sock *sk, const struct sk_buff *skb,
 {
 	unsigned int limit;
 
-	limit = max(2 * skb->truesize, sk->sk_pacing_rate >> 10);
+	limit = max_t(u32, 2 * skb->truesize, sysctl_tcp_tsq_limit_output_interval * (sk->sk_pacing_rate >> 10));
 	limit = min_t(u32, limit, sysctl_tcp_limit_output_bytes);
 	limit <<= factor;
 
