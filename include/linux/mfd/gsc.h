@@ -54,9 +54,6 @@
 #define GSC_IRQ_WDT_TIMEOUT		6
 #define GSC_IRQ_SWITCH_HOLD		7
 
-/* Max registers */
-#define GSC_HWMON_MAX_REG	56
-
 enum gsc_type {
 	gsc_v1 = 1,
 	gsc_v2 = 2,
@@ -74,7 +71,7 @@ struct gsc_dev {
 	struct regmap_irq_chip_data *irq_chip_data;
 
 	int irq;
-	enum gsc_type type;
+	int type;
 	unsigned int fwver;
 	unsigned short fwcrc;
 };

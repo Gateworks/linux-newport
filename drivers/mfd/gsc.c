@@ -6,11 +6,11 @@
  * "Power Management and System Companion Device" chips originally designed for
  * use in Gateworks Single Board Computers. The control interface is I2C,
  * at 100kbps, with an interrupt.
+ *
  */
 #include <linux/device.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
-#include <linux/mfd/core.h>
 #include <linux/mfd/gsc.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
@@ -21,7 +21,7 @@
 
 /*
  * The GSC suffers from an errata where occasionally during
- * ADC cycles the chip can NAK i2c transactions. To ensure we have reliable
+ * ADC cycles the chip can NAK I2C transactions. To ensure we have reliable
  * register access we place retries around register access.
  */
 #define I2C_RETRIES	3
@@ -41,17 +41,12 @@ static int gsc_regmap_regwrite(void *context, unsigned int reg,
 		if (ret != -EAGAIN && ret != -EIO)
 			break;
 	}
-	if (ret < 0) {
-		dev_err(&client->dev, ">> 0x%02x %d\n", reg, ret);
-		return ret;
-	}
-	dev_dbg(&client->dev, ">> 0x%02x=0x%02x (%d)\n", reg, val, retry);
 
-        return 0;
+	return 0;
 }
 
 static int gsc_regmap_regread(void *context, unsigned int reg,
-                                  unsigned int *val)
+			      unsigned int *val)
 {
 	struct i2c_client *client = context;
 	int retry, ret;
@@ -65,20 +60,14 @@ static int gsc_regmap_regread(void *context, unsigned int reg,
 		if (ret != -EAGAIN && ret != -EIO)
 			break;
 	}
-	if (ret < 0) {
-		dev_err(&client->dev, "<< 0x%02x %d\n", reg, ret);
-		return ret;
-	}
-
 	*val = ret & 0xff;
-	dev_dbg(&client->dev, "<< 0x%02x=0x%02x (%d)\n", reg, *val, retry);
 
-        return 0;
+	return 0;
 }
 
 static struct regmap_bus regmap_gsc = {
-        .reg_write = gsc_regmap_regwrite,
-        .reg_read = gsc_regmap_regread,
+	.reg_write = gsc_regmap_regwrite,
+	.reg_read = gsc_regmap_regread,
 };
 
 /*
@@ -102,9 +91,6 @@ static int gsc_powerdown(struct gsc_dev *gsc, unsigned long secs)
 	return ret;
 }
 
-/*
- * sysfs hooks
- */
 static ssize_t gsc_show(struct device *dev, struct device_attribute *attr,
 			char *buf)
 {
@@ -134,16 +120,11 @@ static ssize_t gsc_store(struct device *dev, struct device_attribute *attr,
 		if (ret == 0)
 			gsc_powerdown(gsc, value);
 	} else
-		printk(KERN_ERR "invalid name '%s\n", name);
+		dev_err(dev, "invalid name '%s\n", name);
 
 	return count;
 }
 
-
-/*
- * Create a group of attributes so that we can create and destroy them all
- * at once.
- */
 static struct device_attribute attr_fwver =
 	__ATTR(fw_version, 0440, gsc_show, NULL);
 static struct device_attribute attr_fwcrc =
@@ -162,15 +143,10 @@ static struct attribute_group attr_group = {
 	.attrs = gsc_attrs,
 };
 
-static const struct i2c_device_id gsc_i2c_ids[] = {
-	{ "gsc_v1", gsc_v1 },
-	{ "gsc_v2", gsc_v2 },
-	{ },
-};
-
 static const struct of_device_id gsc_of_match[] = {
-	{ .compatible = "gw,gsc_v1", .data = (void *)gsc_v1 },
-	{ .compatible = "gw,gsc_v2", .data = (void *)gsc_v2 },
+	{ .compatible = "gw,gsc-v1", .data = (void *)gsc_v1 },
+	{ .compatible = "gw,gsc-v2", .data = (void *)gsc_v2 },
+	{ .compatible = "gw,gsc-v3", .data = (void *)gsc_v3 },
 	{ }
 };
 
@@ -185,7 +161,6 @@ static const struct regmap_config gsc_regmap_hwmon_config = {
 	.reg_bits = 8,
 	.val_bits = 8,
 	.cache_type = REGCACHE_NONE,
-	.max_register = 0x37,
 };
 
 static const struct regmap_irq gsc_irqs[] = {
@@ -200,7 +175,7 @@ static const struct regmap_irq gsc_irqs[] = {
 };
 
 static const struct regmap_irq_chip gsc_irq_chip = {
-	.name = KBUILD_MODNAME,
+	.name = "gateworks-gsc",
 	.irqs = gsc_irqs,
 	.num_irqs = ARRAY_SIZE(gsc_irqs),
 	.num_regs = 1,
@@ -242,18 +217,19 @@ gsc_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	gsc->irq = client->irq;
 	i2c_set_clientdata(client, gsc);
 
+	ret = gsc_of_probe(dev->of_node, gsc);
+	if (ret < 0)
+		return ret;
+
 	gsc->regmap = devm_regmap_init(dev, &regmap_gsc, client,
 				       &gsc_regmap_config);
 	if (IS_ERR(gsc->regmap))
 		return PTR_ERR(gsc->regmap);
 
-	ret = gsc_of_probe(dev->of_node, gsc);
-	if (reg < 0)
-		return ret;
-
 	if (regmap_read(gsc->regmap, GSC_FW_VER, &reg))
 		return -EIO;
 	gsc->fwver = reg;
+
 	regmap_read(gsc->regmap, GSC_FW_CRC, &reg);
 	gsc->fwcrc = reg;
 	regmap_read(gsc->regmap, GSC_FW_CRC + 1, &reg);
@@ -267,7 +243,7 @@ gsc_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	i2c_set_clientdata(gsc->i2c_hwmon, gsc);
 
 	gsc->regmap_hwmon = devm_regmap_init(dev, &regmap_gsc, gsc->i2c_hwmon,
-				       &gsc_regmap_hwmon_config);
+					     &gsc_regmap_hwmon_config);
 	if (IS_ERR(gsc->regmap_hwmon)) {
 		ret = PTR_ERR(gsc->regmap_hwmon);
 		dev_err(dev, "failed to allocate register map: %d\n", ret);
@@ -281,10 +257,9 @@ gsc_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	if (ret)
 		goto err_regmap;
 
-	dev_info(dev, "Gateworks System Controller v%d: fw v%02d 0x%04x\n",
-		 gsc->type, gsc->fwver, gsc->fwcrc);
+	dev_info(dev, "Gateworks System Controller v%d: fw 0x%04x\n",
+		 gsc->fwver, gsc->fwcrc);
 
-	/* sysfs hooks */
 	ret = sysfs_create_group(&dev->kobj, &attr_group);
 	if (ret)
 		dev_err(dev, "failed to create sysfs attrs\n");
@@ -305,19 +280,21 @@ err_regmap:
 
 static int gsc_remove(struct i2c_client *client)
 {
+	struct gsc_dev *gsc = i2c_get_clientdata(client);
+
 	sysfs_remove_group(&client->dev.kobj, &attr_group);
+	i2c_unregister_device(gsc->i2c_hwmon);
 
 	return 0;
 }
 
 static struct i2c_driver gsc_driver = {
 	.driver = {
-		.name	= KBUILD_MODNAME,
+		.name	= "gateworks-gsc",
 		.of_match_table = of_match_ptr(gsc_of_match),
 	},
 	.probe		= gsc_probe,
 	.remove		= gsc_remove,
-	.id_table	= gsc_i2c_ids,
 };
 
 module_i2c_driver(gsc_driver);

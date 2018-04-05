@@ -17,7 +17,9 @@
 
 #define GSC_HWMON_MAX_TEMP_CH	16
 #define GSC_HWMON_MAX_IN_CH	16
-#define GSC_HWMON_MAX_FAN_CH	6
+
+#define GSC_HWMON_RESOLUTION	12
+#define GSC_HWMON_VREF		2500
 
 struct gsc_hwmon_data {
 	struct gsc_dev *gsc;
@@ -25,60 +27,172 @@ struct gsc_hwmon_data {
 	struct gsc_hwmon_platform_data *pdata;
 	const struct gsc_hwmon_channel *temp_ch[GSC_HWMON_MAX_TEMP_CH];
 	const struct gsc_hwmon_channel *in_ch[GSC_HWMON_MAX_IN_CH];
-	const struct gsc_hwmon_channel *fan_ch[GSC_HWMON_MAX_FAN_CH];
 	u32 temp_config[GSC_HWMON_MAX_TEMP_CH + 1];
 	u32 in_config[GSC_HWMON_MAX_IN_CH + 1];
-	u32 fan_config[GSC_HWMON_MAX_FAN_CH + 1];
 	struct hwmon_channel_info temp_info;
 	struct hwmon_channel_info in_info;
-	struct hwmon_channel_info fan_info;
 	const struct hwmon_channel_info *info[4];
 	struct hwmon_chip_info chip;
 };
+
+static ssize_t show_pwm_auto_point_temp(struct device *dev,
+					struct device_attribute *devattr,
+					char *buf)
+{
+	struct gsc_hwmon_data *hwmon = dev_get_drvdata(dev);
+	struct sensor_device_attribute *attr = to_sensor_dev_attr(devattr);
+	u8 reg = hwmon->pdata->fan_base + (2 * attr->index);
+	u8 regs[2];
+	int ret;
+
+	ret = regmap_bulk_read(hwmon->gsc->regmap_hwmon, reg, regs, 2);
+	if (ret)
+		return ret;
+
+	ret = regs[0] | regs[1] << 8;
+	return sprintf(buf, "%d\n", ret * 10);
+}
+
+static ssize_t set_pwm_auto_point_temp(struct device *dev,
+				       struct device_attribute *devattr,
+				       const char *buf, size_t count)
+{
+	struct gsc_hwmon_data *hwmon = dev_get_drvdata(dev);
+	struct sensor_device_attribute *attr = to_sensor_dev_attr(devattr);
+	u8 reg = hwmon->pdata->fan_base + (2 * attr->index);
+	u8 regs[2];
+	long temp;
+	int err;
+
+	if (kstrtol(buf, 10, &temp))
+		return -EINVAL;
+
+	temp = clamp_val(temp, 0, 10000);
+	temp = DIV_ROUND_CLOSEST(temp, 10);
+
+	regs[0] = temp & 0xff;
+	regs[1] = (temp >> 8) & 0xff;
+	err = regmap_bulk_write(hwmon->gsc->regmap_hwmon, reg, regs, 2);
+	if (err)
+		return err;
+
+	return count;
+}
+
+static ssize_t show_pwm_auto_point_pwm(struct device *dev,
+				       struct device_attribute *devattr,
+				       char *buf)
+{
+	struct sensor_device_attribute *attr = to_sensor_dev_attr(devattr);
+
+	return sprintf(buf, "%d\n", 255 * (50 + (attr->index * 10)) / 100);
+}
+
+static SENSOR_DEVICE_ATTR(pwm1_auto_point1_pwm, S_IRUGO,
+			  show_pwm_auto_point_pwm, NULL, 0);
+static SENSOR_DEVICE_ATTR(pwm1_auto_point1_temp, S_IRUGO | S_IWUSR,
+			  show_pwm_auto_point_temp, set_pwm_auto_point_temp, 0);
+
+static SENSOR_DEVICE_ATTR(pwm1_auto_point2_pwm, S_IRUGO,
+			  show_pwm_auto_point_pwm, NULL, 1);
+static SENSOR_DEVICE_ATTR(pwm1_auto_point2_temp, S_IRUGO | S_IWUSR,
+			  show_pwm_auto_point_temp, set_pwm_auto_point_temp, 1);
+
+static SENSOR_DEVICE_ATTR(pwm1_auto_point3_pwm, S_IRUGO,
+			  show_pwm_auto_point_pwm, NULL, 2);
+static SENSOR_DEVICE_ATTR(pwm1_auto_point3_temp, S_IRUGO | S_IWUSR,
+			  show_pwm_auto_point_temp, set_pwm_auto_point_temp, 2);
+
+static SENSOR_DEVICE_ATTR(pwm1_auto_point4_pwm, S_IRUGO,
+			  show_pwm_auto_point_pwm, NULL, 3);
+static SENSOR_DEVICE_ATTR(pwm1_auto_point4_temp, S_IRUGO | S_IWUSR,
+			  show_pwm_auto_point_temp, set_pwm_auto_point_temp, 3);
+
+static SENSOR_DEVICE_ATTR(pwm1_auto_point5_pwm, S_IRUGO,
+			  show_pwm_auto_point_pwm, NULL, 4);
+static SENSOR_DEVICE_ATTR(pwm1_auto_point5_temp, S_IRUGO | S_IWUSR,
+			  show_pwm_auto_point_temp, set_pwm_auto_point_temp, 4);
+
+static SENSOR_DEVICE_ATTR(pwm1_auto_point6_pwm, S_IRUGO,
+			  show_pwm_auto_point_pwm, NULL, 5);
+static SENSOR_DEVICE_ATTR(pwm1_auto_point6_temp, S_IRUGO | S_IWUSR,
+			  show_pwm_auto_point_temp, set_pwm_auto_point_temp, 5);
+
+static struct attribute *gsc_hwmon_attributes[] = {
+	&sensor_dev_attr_pwm1_auto_point1_pwm.dev_attr.attr,
+	&sensor_dev_attr_pwm1_auto_point1_temp.dev_attr.attr,
+	&sensor_dev_attr_pwm1_auto_point2_pwm.dev_attr.attr,
+	&sensor_dev_attr_pwm1_auto_point2_temp.dev_attr.attr,
+	&sensor_dev_attr_pwm1_auto_point3_pwm.dev_attr.attr,
+	&sensor_dev_attr_pwm1_auto_point3_temp.dev_attr.attr,
+	&sensor_dev_attr_pwm1_auto_point4_pwm.dev_attr.attr,
+	&sensor_dev_attr_pwm1_auto_point4_temp.dev_attr.attr,
+	&sensor_dev_attr_pwm1_auto_point5_pwm.dev_attr.attr,
+	&sensor_dev_attr_pwm1_auto_point5_temp.dev_attr.attr,
+	&sensor_dev_attr_pwm1_auto_point6_pwm.dev_attr.attr,
+	&sensor_dev_attr_pwm1_auto_point6_temp.dev_attr.attr,
+	NULL
+};
+
+static const struct attribute_group gsc_hwmon_group = {
+	.attrs = gsc_hwmon_attributes,
+};
+__ATTRIBUTE_GROUPS(gsc_hwmon);
 
 static int
 gsc_hwmon_read(struct device *dev, enum hwmon_sensor_types type, u32 attr,
 	       int channel, long *val)
 {
 	struct gsc_hwmon_data *hwmon = dev_get_drvdata(dev);
+	const struct gsc_hwmon_channel *ch;
 	int sz, ret;
-	u8 reg;
 	u8 buf[3];
 
-	dev_dbg(dev, "%s type=%d attr=%d channel=%d\n", __func__, type, attr,
-		channel);
 	switch (type) {
 	case hwmon_in:
-		if (channel > GSC_HWMON_MAX_IN_CH)
-			return -EOPNOTSUPP;
-		reg = hwmon->in_ch[channel]->reg;
-		sz = 3;
+		ch = hwmon->in_ch[channel];
 		break;
 	case hwmon_temp:
-		if (channel > GSC_HWMON_MAX_TEMP_CH)
-			return -EOPNOTSUPP;
-		reg = hwmon->temp_ch[channel]->reg;
-		sz = 2;
-		break;
-	case hwmon_fan:
-		if (channel > GSC_HWMON_MAX_FAN_CH)
-			return -EOPNOTSUPP;
-		reg = hwmon->fan_ch[channel]->reg;
-		sz = 2;
+		ch = hwmon->temp_ch[channel];
 		break;
 	default:
 		return -EOPNOTSUPP;
 	}
 
-	ret = regmap_bulk_read(hwmon->gsc->regmap_hwmon, reg, &buf, sz);
+	if (hwmon->gsc->type == gsc_v3)
+		sz = 2;
+	else
+		sz = (ch->type == type_voltage) ? 3 : 2;
+	ret = regmap_bulk_read(hwmon->gsc->regmap_hwmon, ch->reg, buf, sz);
 	if (ret)
 		return ret;
 
 	*val = 0;
 	while (sz-- > 0)
-		*val |= (buf[sz] << (8*sz));
-	if ((type == hwmon_temp) && *val > 0x8000)
-		*val -= 0xffff;
+		*val |= (buf[sz] << (8 * sz));
+
+	switch (ch->type) {
+	case type_temperature:
+		if (*val > 0x8000)
+			*val -= 0xffff;
+		break;
+	case type_voltage_raw:
+		*val = clamp_val(*val, 0, BIT(GSC_HWMON_RESOLUTION));
+		/* scale based on ref voltage and resolution */
+		*val *= GSC_HWMON_VREF;
+		*val /= BIT(GSC_HWMON_RESOLUTION);
+		/* scale based on optional voltage divider */
+		if (ch->vdiv[0] && ch->vdiv[1]) {
+			*val *= (ch->vdiv[0] + ch->vdiv[1]);
+			*val /= ch->vdiv[1];
+		}
+		/* adjust by offset */
+		*val += ch->voffset;
+		break;
+	case type_voltage:
+		/* no adjustment needed */
+		break;
+	}
 
 	return 0;
 }
@@ -89,23 +203,12 @@ gsc_hwmon_read_string(struct device *dev, enum hwmon_sensor_types type,
 {
 	struct gsc_hwmon_data *hwmon = dev_get_drvdata(dev);
 
-	dev_dbg(dev, "%s type=%d attr=%d channel=%d\n", __func__, type, attr,
-		channel);
 	switch (type) {
 	case hwmon_in:
-		if (channel > GSC_HWMON_MAX_IN_CH)
-			return -EOPNOTSUPP;
 		*buf = hwmon->in_ch[channel]->name;
 		break;
 	case hwmon_temp:
-		if (channel > GSC_HWMON_MAX_TEMP_CH)
-			return -EOPNOTSUPP;
 		*buf = hwmon->temp_ch[channel]->name;
-		break;
-	case hwmon_fan:
-		if (channel > GSC_HWMON_MAX_FAN_CH)
-			return -EOPNOTSUPP;
-		*buf = hwmon->fan_ch[channel]->name;
 		break;
 	default:
 		return -ENOTSUPP;
@@ -114,76 +217,39 @@ gsc_hwmon_read_string(struct device *dev, enum hwmon_sensor_types type,
 	return 0;
 }
 
-static int
-gsc_hwmon_write(struct device *dev, enum hwmon_sensor_types type, u32 attr,
-		int channel, long val)
-{
-	struct gsc_hwmon_data *hwmon = dev_get_drvdata(dev);
-	u8 buf[3];
-
-	dev_dbg(dev, "%s type=%d attr=%d channel=%d\n", __func__, type, attr,
-		channel);
-	switch (type) {
-	case hwmon_fan:
-		if (channel == GSC_HWMON_MAX_FAN_CH)
-			return -EOPNOTSUPP;
-		buf[0] = val & 0xff;
-		buf[1] = (val >> 8) & 0xff;
-		return regmap_bulk_write(hwmon->gsc->regmap_hwmon,
-					 hwmon->fan_ch[channel]->reg, buf, 2);
-	default:
-		break;
-	}
-
-	return -EOPNOTSUPP;
-}
-
 static umode_t
 gsc_hwmon_is_visible(const void *_data, enum hwmon_sensor_types type, u32 attr,
 		     int ch)
 {
-	const struct gsc_hwmon_data *hwmon = _data;
-	struct device *dev = hwmon->gsc->dev;
-	umode_t mode = 0;
-
 	switch (type) {
-	case hwmon_fan:
-		mode = S_IRUGO;
-		if (attr == hwmon_fan_input)
-			mode |= S_IWUSR;
-		break;
 	case hwmon_temp:
+		return S_IRUGO;
 	case hwmon_in:
-		mode = S_IRUGO;
+		return S_IRUGO;
 		break;
 	default:
-		break;
+		return -EOPNOTSUPP;
 	}
-	dev_dbg(dev, "%s type=%d attr=%d ch=%d mode=0x%x\n", __func__, type,
-		attr, ch, mode);
-
-	return mode;
 }
 
 static const struct hwmon_ops gsc_hwmon_ops = {
 	.is_visible = gsc_hwmon_is_visible,
 	.read = gsc_hwmon_read,
 	.read_string = gsc_hwmon_read_string,
-	.write = gsc_hwmon_write,
 };
 
 static struct gsc_hwmon_platform_data *
-gsc_hwmon_get_devtree_pdata(struct device* dev)
+gsc_hwmon_get_devtree_pdata(struct device *dev)
 {
 	struct gsc_hwmon_platform_data *pdata;
 	struct gsc_hwmon_channel *ch;
 	struct fwnode_handle *child;
+	const char *type;
 	int nchannels;
 
-        nchannels = device_get_child_node_count(dev);
-        dev_dbg(dev, "channels=%d\n", nchannels);
-        if (nchannels == 0)
-                return ERR_PTR(-ENODEV);
+	nchannels = device_get_child_node_count(dev);
+	if (nchannels == 0)
+		return ERR_PTR(-ENODEV);
 
 	pdata = devm_kzalloc(dev,
 			     sizeof(*pdata) + nchannels * sizeof(*ch),
@@ -191,8 +257,10 @@ gsc_hwmon_get_devtree_pdata(struct device* dev)
 	if (!pdata)
 		return ERR_PTR(-ENOMEM);
 	ch = (struct gsc_hwmon_channel *)(pdata + 1);
-        pdata->channels = ch;
-        pdata->nchannels = nchannels;
+	pdata->channels = ch;
+	pdata->nchannels = nchannels;
+
+	device_property_read_u32(dev, "gw,fan-base", &pdata->fan_base);
 
 	/* allocate structures for channels and count instances of each type */
 	device_for_each_child_node(dev, child) {
@@ -206,13 +274,27 @@ gsc_hwmon_get_devtree_pdata(struct device* dev)
 			fwnode_handle_put(child);
 			return ERR_PTR(-EINVAL);
 		}
-		if (fwnode_property_read_u32(child, "type", &ch->type)) {
+		if (fwnode_property_read_string(child, "type", &type)) {
 			dev_err(dev, "channel without type\n");
 			fwnode_handle_put(child);
 			return ERR_PTR(-EINVAL);
 		}
-		dev_dbg(dev, "of: reg=0x%02x type=%d %s\n", ch->reg, ch->type,
-			ch->name);
+		if (!strcasecmp(type, "gw,hwmon-temperature"))
+			ch->type = type_temperature;
+		else if (!strcasecmp(type, "gw,hwmon-voltage"))
+			ch->type = type_voltage;
+		else if (!strcasecmp(type, "gw,hwmon-voltage-raw"))
+			ch->type = type_voltage_raw;
+		else {
+			dev_err(dev, "channel without type\n");
+			fwnode_handle_put(child);
+			return ERR_PTR(-EINVAL);
+		}
+
+		fwnode_property_read_u32(child, "gw,voltage-offset",
+			&ch->voffset);
+		fwnode_property_read_u32_array(child, "gw,voltage-divider",
+			ch->vdiv, ARRAY_SIZE(ch->vdiv));
 		ch++;
 	}
 
@@ -225,7 +307,8 @@ static int gsc_hwmon_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct gsc_hwmon_platform_data *pdata = dev_get_platdata(dev);
 	struct gsc_hwmon_data *hwmon;
-	int i, i_in, i_temp, i_fan;
+	const struct attribute_group **groups;
+	int i, i_in, i_temp;
 
 	if (!pdata) {
 		pdata = gsc_hwmon_get_devtree_pdata(dev);
@@ -239,29 +322,24 @@ static int gsc_hwmon_probe(struct platform_device *pdev)
 	hwmon->gsc = gsc;
 	hwmon->pdata = pdata;
 
-	for (i = 0, i_in = 0, i_temp = 0, i_fan = 0;
-	     i < hwmon->pdata->nchannels; i++)
-	{
+	for (i = 0, i_in = 0, i_temp = 0; i < hwmon->pdata->nchannels; i++) {
 		const struct gsc_hwmon_channel *ch = &pdata->channels[i];
 
-		if (ch->reg > GSC_HWMON_MAX_REG) {
-			dev_err(dev, "invalid reg: 0x%02x\n", ch->reg);
-			return -EINVAL;
-		}
-		switch(ch->type) {
+		switch (ch->type) {
 		case type_temperature:
 			if (i_temp == GSC_HWMON_MAX_TEMP_CH) {
-				dev_err(dev, "too many temp channels\n");
+				dev_err(gsc->dev, "too many temp channels\n");
 				return -EINVAL;
 			}
 			hwmon->temp_ch[i_temp] = ch;
-			hwmon->temp_config[i_temp] =
-				HWMON_T_INPUT | HWMON_T_LABEL;
+			hwmon->temp_config[i_temp] = HWMON_T_INPUT |
+						     HWMON_T_LABEL;
 			i_temp++;
 			break;
 		case type_voltage:
+		case type_voltage_raw:
 			if (i_in == GSC_HWMON_MAX_IN_CH) {
-				dev_err(dev, "too many voltage channels\n");
+				dev_err(gsc->dev, "too many input channels\n");
 				return -EINVAL;
 			}
 			hwmon->in_ch[i_in] = ch;
@@ -269,45 +347,26 @@ static int gsc_hwmon_probe(struct platform_device *pdev)
 				HWMON_I_INPUT | HWMON_I_LABEL;
 			i_in++;
 			break;
-		case type_fan:
-			if (i_fan == GSC_HWMON_MAX_FAN_CH) {
-				dev_err(dev, "too many voltage channels\n");
-				return -EINVAL;
-			}
-			hwmon->fan_ch[i_fan] = ch;
-			hwmon->fan_config[i_fan] =
-				HWMON_F_INPUT | HWMON_F_LABEL;
-			i_fan++;
-			break;
 		default:
-			dev_err(dev, "invalid type: %d\n", ch->type);
+			dev_err(gsc->dev, "invalid type: %d\n", ch->type);
 			return -EINVAL;
 		}
-		dev_dbg(dev, "pdata: reg=0x%02x type=%d %s\n", ch->reg,
-			ch->type, ch->name);
 	}
-
-	/* terminate channel config lists */
-	hwmon->temp_config[i_temp] = 0;
-	hwmon->in_config[i_in] = 0;
-	hwmon->fan_config[i_fan] = 0;
 
 	/* setup config structures */
 	hwmon->chip.ops = &gsc_hwmon_ops;
 	hwmon->chip.info = hwmon->info;
 	hwmon->info[0] = &hwmon->temp_info;
 	hwmon->info[1] = &hwmon->in_info;
-	hwmon->info[2] = &hwmon->fan_info;
 	hwmon->temp_info.type = hwmon_temp;
 	hwmon->temp_info.config = hwmon->temp_config;
 	hwmon->in_info.type = hwmon_in;
 	hwmon->in_info.config = hwmon->in_config;
-	hwmon->fan_info.type = hwmon_fan;
-	hwmon->fan_info.config = hwmon->fan_config;
 
+	groups = pdata->fan_base ? gsc_hwmon_groups : NULL;
 	hwmon->dev = devm_hwmon_device_register_with_info(dev,
 							  KBUILD_MODNAME, hwmon,
-							  &hwmon->chip, NULL);
+							  &hwmon->chip, groups);
 	return PTR_ERR_OR_ZERO(hwmon->dev);
 }
 
