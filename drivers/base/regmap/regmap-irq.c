@@ -363,8 +363,7 @@ static irqreturn_t regmap_irq_thread(int irq, void *d)
 			if (chip->ack_invert)
 				ret = regmap_write(map, reg,
 						   ~data->status_buf[i] &
-						   ~data->mask_buf[i]);
-
+						   data->mask_buf[i]);
 			else
 				ret = regmap_write(map, reg,
 						   data->status_buf[i] &
