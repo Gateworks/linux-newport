@@ -56,6 +56,7 @@ struct bgx {
 	bool                    is_dlm;
 	bool                    is_rgx;
 	int			phy_mode;
+	char			irq_name[7];
 };
 
 static struct bgx *bgx_vnic[MAX_BGX_THUNDER];
@@ -1374,7 +1375,6 @@ static int bgx_register_intr(struct pci_dev *pdev)
 	struct bgx *bgx = pci_get_drvdata(pdev);
 	struct device *dev = &pdev->dev;
 	int num_vec, ret;
-	char irq_name[32];
 
 	/* Enable MSI-X */
 	num_vec = pci_msix_vec_count(pdev);
@@ -1383,9 +1383,9 @@ static int bgx_register_intr(struct pci_dev *pdev)
 		dev_err(dev, "Req for #%d msix vectors failed\n", num_vec);
 		return 1;
 	}
-	sprintf(irq_name, "BGX%d", bgx->bgx_id);
+	sprintf(bgx->irq_name, "BGX%d", bgx->bgx_id);
 	ret = request_irq(pci_irq_vector(pdev, GMPX_GMI_TX_INT),
-		bgx_intr_handler, 0, irq_name, bgx);
+		bgx_intr_handler, 0, bgx->irq_name, bgx);
 	if (ret)
 		return 1;
 
