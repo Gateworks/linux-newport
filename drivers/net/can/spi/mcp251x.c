@@ -942,7 +942,7 @@ static int mcp251x_open(struct net_device *net)
 {
 	struct mcp251x_priv *priv = netdev_priv(net);
 	struct spi_device *spi = priv->spi;
-	unsigned long flags = IRQF_ONESHOT | IRQF_TRIGGER_FALLING;
+	unsigned long flags = IRQF_ONESHOT | IRQF_TRIGGER_LOW;
 	int ret;
 
 	ret = open_candev(net);
