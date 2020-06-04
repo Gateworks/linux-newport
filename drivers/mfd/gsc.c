@@ -155,9 +155,7 @@ static struct attribute_group attr_group = {
 };
 
 static const struct of_device_id gsc_of_match[] = {
-	{ .compatible = "gw,gsc-v1", .data = (void *)gsc_v1 },
-	{ .compatible = "gw,gsc-v2", .data = (void *)gsc_v2 },
-	{ .compatible = "gw,gsc-v3", .data = (void *)gsc_v3 },
+	{ .compatible = "gw,gsc", },
 	{ }
 };
 

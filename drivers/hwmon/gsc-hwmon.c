@@ -146,6 +146,7 @@ gsc_hwmon_read(struct device *dev, enum hwmon_sensor_types type, u32 attr,
 	struct gsc_hwmon_data *hwmon = dev_get_drvdata(dev);
 	const struct gsc_hwmon_channel *ch;
 	int sz, ret;
+	long tmp;
 	u8 buf[3];
 
 	switch (type) {
@@ -159,41 +160,40 @@ gsc_hwmon_read(struct device *dev, enum hwmon_sensor_types type, u32 attr,
 		return -EOPNOTSUPP;
 	}
 
-	if (hwmon->gsc->type == gsc_v3)
-		sz = 2;
-	else
-		sz = (ch->type == type_voltage) ? 3 : 2;
+	sz = (ch->mode == mode_voltage_24bit) ? 3 : 2;
 	ret = regmap_bulk_read(hwmon->gsc->regmap_hwmon, ch->reg, buf, sz);
 	if (ret)
 		return ret;
 
-	*val = 0;
+	tmp = 0;
 	while (sz-- > 0)
-		*val |= (buf[sz] << (8 * sz));
+		tmp |= (buf[sz] << (8 * sz));
 
-	switch (ch->type) {
-	case type_temperature:
-		if (*val > 0x8000)
-			*val -= 0xffff;
-		*val *= 100; /* convert to milidegrees */
+	switch (ch->mode) {
+	case mode_temperature:
+		if (tmp > 0x8000)
+			tmp -= 0xffff;
 		break;
-	case type_voltage_raw:
-		*val = clamp_val(*val, 0, BIT(GSC_HWMON_RESOLUTION));
-		/* scale based on ref voltage and resolution */
-		*val *= GSC_HWMON_VREF;
-		*val /= BIT(GSC_HWMON_RESOLUTION);
+	case mode_voltage_raw:
+		tmp = clamp_val(tmp, 0, BIT(GSC_HWMON_RESOLUTION));
+		/* scale based on ref voltage and ADC resolution */
+		tmp *= GSC_HWMON_VREF;
+		tmp >>= GSC_HWMON_RESOLUTION;
 		/* scale based on optional voltage divider */
 		if (ch->vdiv[0] && ch->vdiv[1]) {
-			*val *= (ch->vdiv[0] + ch->vdiv[1]);
-			*val /= ch->vdiv[1];
+			tmp *= (ch->vdiv[0] + ch->vdiv[1]);
+			tmp /= ch->vdiv[1];
 		}
-		/* adjust by offset */
-		*val += ch->voffset;
+		/* adjust by uV offset */
+		tmp += ch->mvoffset;
 		break;
-	case type_voltage:
+	case mode_voltage_24bit:
+	case mode_voltage_16bit:
 		/* no adjustment needed */
 		break;
 	}
+
+	*val = tmp;
 
 	return 0;
 }
@@ -245,7 +245,7 @@ gsc_hwmon_get_devtree_pdata(struct device *dev)
 	struct gsc_hwmon_platform_data *pdata;
 	struct gsc_hwmon_channel *ch;
 	struct fwnode_handle *child;
-	const char *type;
+	struct device_node *fan;
 	int nchannels;
 
 	nchannels = device_get_child_node_count(dev);
@@ -261,7 +261,12 @@ gsc_hwmon_get_devtree_pdata(struct device *dev)
 	pdata->channels = ch;
 	pdata->nchannels = nchannels;
 
-	device_property_read_u32(dev, "gw,fan-base", &pdata->fan_base);
+	/* fan controller base address */
+	fan = of_find_compatible_node(dev->parent->of_node, NULL, "gw,gsc-fan");
+	if (fan && of_property_read_u32(fan, "reg", &pdata->fan_base)) {
+		dev_err(dev, "fan node without base\n");
+		return ERR_PTR(-EINVAL);
+	}
 
 	/* allocate structures for channels and count instances of each type */
 	device_for_each_child_node(dev, child) {
@@ -275,27 +280,24 @@ gsc_hwmon_get_devtree_pdata(struct device *dev)
 			fwnode_handle_put(child);
 			return ERR_PTR(-EINVAL);
 		}
-		if (fwnode_property_read_string(child, "type", &type)) {
-			dev_err(dev, "channel without type\n");
+		if (fwnode_property_read_u32(child, "gw,mode", &ch->mode)) {
+			dev_err(dev, "channel without mode\n");
 			fwnode_handle_put(child);
 			return ERR_PTR(-EINVAL);
 		}
-		if (!strcasecmp(type, "gw,hwmon-temperature"))
-			ch->type = type_temperature;
-		else if (!strcasecmp(type, "gw,hwmon-voltage"))
-			ch->type = type_voltage;
-		else if (!strcasecmp(type, "gw,hwmon-voltage-raw"))
-			ch->type = type_voltage_raw;
-		else {
-			dev_err(dev, "channel without type\n");
+		if (ch->mode > mode_max) {
+			dev_err(dev, "invalid channel mode\n");
 			fwnode_handle_put(child);
 			return ERR_PTR(-EINVAL);
 		}
 
-		fwnode_property_read_u32(child, "gw,voltage-offset",
-			&ch->voffset);
-		fwnode_property_read_u32_array(child, "gw,voltage-divider",
-			ch->vdiv, ARRAY_SIZE(ch->vdiv));
+		if (!fwnode_property_read_u32(child,
+					      "gw,voltage-offset-microvolt",
+					      &ch->mvoffset))
+			ch->mvoffset /= 1000;
+		fwnode_property_read_u32_array(child,
+					       "gw,voltage-divider-ohms",
+					       ch->vdiv, ARRAY_SIZE(ch->vdiv));
 		ch++;
 	}
 
@@ -326,8 +328,8 @@ static int gsc_hwmon_probe(struct platform_device *pdev)
 	for (i = 0, i_in = 0, i_temp = 0; i < hwmon->pdata->nchannels; i++) {
 		const struct gsc_hwmon_channel *ch = &pdata->channels[i];
 
-		switch (ch->type) {
-		case type_temperature:
+		switch (ch->mode) {
+		case mode_temperature:
 			if (i_temp == GSC_HWMON_MAX_TEMP_CH) {
 				dev_err(gsc->dev, "too many temp channels\n");
 				return -EINVAL;
@@ -337,8 +339,9 @@ static int gsc_hwmon_probe(struct platform_device *pdev)
 						     HWMON_T_LABEL;
 			i_temp++;
 			break;
-		case type_voltage:
-		case type_voltage_raw:
+		case mode_voltage_24bit:
+		case mode_voltage_16bit:
+		case mode_voltage_raw:
 			if (i_in == GSC_HWMON_MAX_IN_CH) {
 				dev_err(gsc->dev, "too many input channels\n");
 				return -EINVAL;
@@ -349,7 +352,7 @@ static int gsc_hwmon_probe(struct platform_device *pdev)
 			i_in++;
 			break;
 		default:
-			dev_err(gsc->dev, "invalid type: %d\n", ch->type);
+			dev_err(gsc->dev, "invalid mode: %d\n", ch->mode);
 			return -EINVAL;
 		}
 	}
@@ -372,7 +375,7 @@ static int gsc_hwmon_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id gsc_hwmon_of_match[] = {
-	{ .compatible = "gw,gsc-hwmon", },
+	{ .compatible = "gw,gsc-adc", },
 	{}
 };
 
