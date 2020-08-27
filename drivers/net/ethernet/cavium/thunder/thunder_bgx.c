@@ -1499,6 +1499,7 @@ static int bgx_init_of_phy(struct bgx *bgx)
 		    !of_device_is_compatible(phy_np, "cortina,cs4223-slice")) {
 			/* Wait until the phy drivers are available */
 			pd = of_phy_find_device(phy_np);
+			of_node_put(phy_np);
 			if (!pd)
 				goto defer;
 			bgx->lmac[lmac].phydev = pd;
@@ -1651,7 +1652,7 @@ static int bgx_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	err = bgx_init_phy(bgx);
 	if (err)
-		goto err_enable;
+		goto err_init_phy;
 
 	bgx_init_hw(bgx);
 
@@ -1672,8 +1673,9 @@ static int bgx_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	return 0;
 
 err_enable:
-	bgx_vnic[bgx->bgx_id] = NULL;
 	pci_free_irq(pdev, GMPX_GMI_TX_INT, bgx);
+err_init_phy:
+	bgx_vnic[bgx->bgx_id] = NULL;
 err_release_regions:
 	pci_release_regions(pdev);
 err_disable_device:
