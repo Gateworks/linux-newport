@@ -50,7 +50,7 @@ static ssize_t show_pwm_auto_point_temp(struct device *dev,
 		return ret;
 
 	ret = regs[0] | regs[1] << 8;
-	return sprintf(buf, "%d\n", ret * 100);
+	return sprintf(buf, "%d\n", ret * 10);
 }
 
 static ssize_t set_pwm_auto_point_temp(struct device *dev,
@@ -67,8 +67,8 @@ static ssize_t set_pwm_auto_point_temp(struct device *dev,
 	if (kstrtol(buf, 10, &temp))
 		return -EINVAL;
 
-	temp = clamp_val(temp, 0, 100000);
-	temp = DIV_ROUND_CLOSEST(temp, 100);
+	temp = clamp_val(temp, 0, 10000);
+	temp = DIV_ROUND_CLOSEST(temp, 10);
 
 	regs[0] = temp & 0xff;
 	regs[1] = (temp >> 8) & 0xff;
